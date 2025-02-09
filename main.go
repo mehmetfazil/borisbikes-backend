@@ -1,71 +1,44 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/joho/godotenv"
-	sqlitecloud "github.com/sqlitecloud/sqlitecloud-go"
+	"github.com/mehmetfazil/borisbikes-backend/db"
+	"github.com/mehmetfazil/borisbikes-backend/handlers"
 )
 
-var db *sqlitecloud.SQCloud
-
 func main() {
-	loadEnv()
-	initDB()
+	db.Init()
 	defer db.Close()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	r.Get("/stations", getAllStations)
+	// Assigning routes directly to handlers
+	r.Get("/stations", handlers.GetAllStationsInfo)
+	r.Get("/station/{terminalName}", handlers.GetStationStatus)
 
-	log.Println("Starting server on :8080...")
-	log.Fatal(http.ListenAndServe(":8080", r))
-}
+	// Handle graceful shutdown
+	srv := &http.Server{Addr: ":8080", Handler: r}
+	go func() {
+		log.Println("Starting server on :8080...")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Could not listen on :8080: %v", err)
+		}
+	}()
 
-func loadEnv() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
-	}
-}
+	// Wait for interrupt signal to gracefully shut down the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
 
-func initDB() {
-	connStr := os.Getenv("SQLITECLOUD_CONN_STR")
-	if connStr == "" {
-		log.Fatal("SQLITECLOUD_CONN_STR environment variable not set")
-	}
-
-	var err error
-	db, err = sqlitecloud.Connect(connStr)
-	if err != nil {
-		log.Fatalf("Failed to connect to SQLite Cloud: %v", err)
-	}
-}
-
-func getAllStations(w http.ResponseWriter, r *http.Request) {
-	query := `SELECT DISTINCT terminal_name FROM livecyclehireupdates;`
-	result, err := db.Select(query)
-	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
-		log.Printf("Query error: %v", err)
-		return
-	}
-
-	var stations []string
-	for r := uint64(0); r < result.GetNumberOfRows(); r++ {
-		stationName, _ := result.GetStringValue(r, 0)
-		stations = append(stations, stationName)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(stations); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		log.Printf("Encoding error: %v", err)
-	}
+	log.Println("Shutting down server...")
+	srv.Close() // Close the server to ensure deferred db.CloseDB() is called
 }
