@@ -21,7 +21,6 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Assigning routes directly to handlers
 	r.Get("/stations", handlers.GetAllStationsInfo)
 	r.Get("/station/{terminalName}", handlers.GetStationStatus)
 
