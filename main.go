@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/mehmetfazil/borisbikes-backend/db"
 	"github.com/mehmetfazil/borisbikes-backend/handlers"
 )
@@ -21,6 +22,16 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
+
+	// Routes
 	r.Get("/stations", handlers.GetAllStationsInfo)
 	r.Get("/station/{terminalName}", handlers.GetStationStatus)
 
@@ -39,5 +50,5 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down server...")
-	srv.Close() // Close the server to ensure deferred db.CloseDB() is called
+	srv.Close()
 }
