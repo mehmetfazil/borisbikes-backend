@@ -181,7 +181,7 @@ func GetStationHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2) Whitelist valid characters (adjust as needed: alpha, numeric, etc.)
+	// 2) Whitelist valid characters
 	isValid := regexp.MustCompile(`^[A-Za-z0-9]+$`).MatchString
 	if !isValid(terminalName) {
 		http.Error(w, "Invalid station identifier", http.StatusBadRequest)
@@ -191,15 +191,16 @@ func GetStationHistory(w http.ResponseWriter, r *http.Request) {
 	// 3) Calculate date range for the past 7 days
 	sevenDaysAgo := time.Now().AddDate(0, 0, -7).Format("2006-01-02 15:04:05")
 
-	// 4) Build the query string safely
+	// 4) Build the query string
 	query := fmt.Sprintf(`
         SELECT 
-            last_update, 
+            last_update,
             nb_standard_bikes, 
             nb_ebikes
         FROM livecyclehireupdates
         WHERE terminal_name = '%s' AND last_update >= '%s'
-        ORDER BY last_update DESC;
+        ORDER BY last_update DESC
+		LIMIT 1000;
     `, terminalName, sevenDaysAgo)
 
 	// Execute the query
@@ -210,30 +211,10 @@ func GetStationHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If no results are found
-	if result.GetNumberOfRows() == 0 {
-		http.Error(w, "No historical data found for the station", http.StatusNotFound)
-		return
-	}
+	// Convert the result to JSON using the ToJSON() method
+	jsonData := result.ToJSON()
 
-	// Collect results using uint64 in the loop
-	var history []StationHistory
-	for i := uint64(0); i < result.GetNumberOfRows(); i++ {
-		lastUpdate, _ := result.GetStringValue(i, 0)
-		nbStandardBikes, _ := result.GetInt64Value(i, 1)
-		nbEbikes, _ := result.GetInt64Value(i, 2)
-
-		history = append(history, StationHistory{
-			LastUpdate:      lastUpdate,
-			NbStandardBikes: int(nbStandardBikes),
-			NbEbikes:        int(nbEbikes),
-		})
-	}
-
-	// Respond with JSON
+	// Respond with the JSON data
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(history); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		log.Printf("Encoding error: %v", err)
-	}
+	w.Write([]byte(jsonData))
 }
