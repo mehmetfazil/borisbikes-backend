@@ -34,6 +34,7 @@ func main() {
 	// Routes
 	r.Get("/stations", handlers.GetAllStationsInfo)
 	r.Get("/station/{terminalName}", handlers.GetStationStatus)
+	r.Get("/history/{terminalName}", handlers.GetStationHistory)
 
 	// Handle graceful shutdown
 	srv := &http.Server{Addr: ":8080", Handler: r}

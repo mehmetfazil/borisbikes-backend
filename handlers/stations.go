@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mehmetfazil/borisbikes-backend/db"
@@ -160,6 +161,78 @@ func GetStationStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		log.Printf("Encoding error: %v", err)
+	}
+}
+
+type StationHistory struct {
+	LastUpdate      string `json:"last_update"`
+	NbStandardBikes int    `json:"nb_standard_bikes"`
+	NbEbikes        int    `json:"nb_ebikes"`
+}
+
+func GetStationHistory(w http.ResponseWriter, r *http.Request) {
+	terminalName := chi.URLParam(r, "terminalName")
+
+	// 1) Check length constraint
+	if len(terminalName) == 0 || len(terminalName) > 10 {
+		http.Error(w, "Invalid station identifier", http.StatusBadRequest)
+		return
+	}
+
+	// 2) Whitelist valid characters (adjust as needed: alpha, numeric, etc.)
+	isValid := regexp.MustCompile(`^[A-Za-z0-9]+$`).MatchString
+	if !isValid(terminalName) {
+		http.Error(w, "Invalid station identifier", http.StatusBadRequest)
+		return
+	}
+
+	// 3) Calculate date range for the past 7 days
+	sevenDaysAgo := time.Now().AddDate(0, 0, -7).Format("2006-01-02 15:04:05")
+
+	// 4) Build the query string safely
+	query := fmt.Sprintf(`
+        SELECT 
+            last_update, 
+            nb_standard_bikes, 
+            nb_ebikes
+        FROM livecyclehireupdates
+        WHERE terminal_name = '%s' AND last_update >= '%s'
+        ORDER BY last_update DESC;
+    `, terminalName, sevenDaysAgo)
+
+	// Execute the query
+	result, err := db.Db.Select(query)
+	if err != nil {
+		http.Error(w, "Database query failed", http.StatusInternalServerError)
+		log.Printf("Database query error: %v", err)
+		return
+	}
+
+	// If no results are found
+	if result.GetNumberOfRows() == 0 {
+		http.Error(w, "No historical data found for the station", http.StatusNotFound)
+		return
+	}
+
+	// Collect results using uint64 in the loop
+	var history []StationHistory
+	for i := uint64(0); i < result.GetNumberOfRows(); i++ {
+		lastUpdate, _ := result.GetStringValue(i, 0)
+		nbStandardBikes, _ := result.GetInt64Value(i, 1)
+		nbEbikes, _ := result.GetInt64Value(i, 2)
+
+		history = append(history, StationHistory{
+			LastUpdate:      lastUpdate,
+			NbStandardBikes: int(nbStandardBikes),
+			NbEbikes:        int(nbEbikes),
+		})
+	}
+
+	// Respond with JSON
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(history); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		log.Printf("Encoding error: %v", err)
 	}
